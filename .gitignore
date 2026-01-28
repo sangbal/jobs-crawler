@@ -1,0 +1,9 @@
+# Secret keys
+key/
+*.json
+!package.json
+
+# Python
+__pycache__/
+*.pyc
+.env

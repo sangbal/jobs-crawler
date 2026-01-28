@@ -17,6 +17,16 @@
 
 - 매일 오전 9시 (한국 시간) 자동 실행
 - GitHub Actions의 `workflow_dispatch`로 수동 실행 가능
+- 크롤링 완료 후 이메일 뉴스레터 자동 발송
+
+## 이메일 뉴스레터
+
+크롤링 완료 후 다음 내용을 포함한 이메일을 자동 발송합니다:
+
+- 📊 전체 공고 수 / 오늘 신규 / 마감 임박 요약
+- 🏢 회사별 공고 현황
+- 🆕 오늘 신규 등록된 공고 목록
+- ⏰ 7일 이내 마감 임박 공고
 
 ## 설정 방법
 
@@ -37,6 +47,7 @@
 | `COUPANG_SPREADSHEET_ID` | 쿠팡용 스프레드시트 ID |
 | `DAANGN_SPREADSHEET_ID` | 당근용 스프레드시트 ID |
 | `BAEMIN_SPREADSHEET_ID` | 배민용 스프레드시트 ID |
+| `APPS_SCRIPT_URL` | 이메일 발송용 Apps Script 웹앱 URL |
 
 ## 스프레드시트 컬럼 구조
 
@@ -68,6 +79,9 @@ jobs-crawler/
 ├── .github/
 │   └── workflows/
 │       └── crawl.yml          # GitHub Actions 워크플로우
+├── apps-script/
+│   ├── Code.gs                # 이메일 뉴스레터 Apps Script
+│   └── SETUP.md               # Apps Script 설정 가이드
 ├── crawler.py                 # 카카오 크롤러
 ├── toss_crawler.py            # 토스 크롤러
 ├── naver_crawler.py           # 네이버 크롤러

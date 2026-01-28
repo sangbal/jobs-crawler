@@ -58,3 +58,16 @@ jobs:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           BAEMIN_SPREADSHEET_ID: ${{ secrets.BAEMIN_SPREADSHEET_ID }}
         run: python baemin_crawler.py
+
+      - name: Send email newsletter
+        if: always()
+        run: |
+          echo "Triggering email newsletter..."
+          response=$(curl -sL "${{ secrets.APPS_SCRIPT_URL }}")
+          echo "Response: $response"
+          if echo "$response" | grep -q '"success":true'; then
+            echo "✅ Email sent successfully"
+          else
+            echo "⚠️ Email sending may have failed"
+            echo "$response"
+          fi

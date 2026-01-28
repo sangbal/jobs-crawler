@@ -1,4 +1,4 @@
-name: Kakao Jobs Crawler
+name: Jobs Crawler
 
 on:
   schedule:
@@ -23,8 +23,38 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run crawler
+      - name: Run Kakao crawler
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
         run: python crawler.py
+
+      - name: Run Toss crawler
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          TOSS_SPREADSHEET_ID: ${{ secrets.TOSS_SPREADSHEET_ID }}
+        run: python toss_crawler.py
+
+      - name: Run Naver crawler
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          NAVER_SPREADSHEET_ID: ${{ secrets.NAVER_SPREADSHEET_ID }}
+        run: python naver_crawler.py
+
+      - name: Run Coupang crawler
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          COUPANG_SPREADSHEET_ID: ${{ secrets.COUPANG_SPREADSHEET_ID }}
+        run: python coupang_crawler.py
+
+      - name: Run Daangn crawler
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          DAANGN_SPREADSHEET_ID: ${{ secrets.DAANGN_SPREADSHEET_ID }}
+        run: python daangn_crawler.py
+
+      - name: Run Baemin crawler
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          BAEMIN_SPREADSHEET_ID: ${{ secrets.BAEMIN_SPREADSHEET_ID }}
+        run: python baemin_crawler.py

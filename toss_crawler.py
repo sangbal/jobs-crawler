@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""카카오 채용 정보 크롤러 - Google Sheets 자동 적재"""
+"""토스 채용 정보 크롤러 - Google Sheets 자동 적재"""
 
 import json
 import os
@@ -10,12 +10,11 @@ import requests
 from google.oauth2.service_account import Credentials
 
 # API 설정
-API_URL = "https://careers.kakao.com/public/api/job-list"
-PARAMS = {
-    "part": "BUSINESS_SERVICES",
-    "employeeType": "0",  # 정규직
-    "company": "ALL",
-}
+API_URL = "https://api-public.toss.im/api/v3/ipd-eggnog/career/jobs"
+
+# 필터 조건
+TARGET_EMPLOYMENT_TYPE = "정규직"
+TARGET_JOB_CATEGORIES = {"Sales", "Sales Support"}  # Business & Sales 관련
 
 # Google Sheets 스코프
 SCOPES = [
@@ -25,34 +24,45 @@ SCOPES = [
 
 
 def fetch_all_jobs() -> list[dict]:
-    """모든 페이지의 채용 정보를 가져옵니다."""
-    all_jobs = []
-    page = 1
+    """토스 채용 정보를 가져옵니다."""
+    response = requests.get(API_URL, timeout=30)
+    response.raise_for_status()
+    data = response.json()
 
-    while True:
-        params = {**PARAMS, "page": page}
-        response = requests.get(API_URL, params=params, timeout=30)
-        response.raise_for_status()
-        data = response.json()
+    if data.get("resultType") != "SUCCESS":
+        raise ValueError(f"API 요청 실패: {data.get('error')}")
 
-        jobs = data.get("jobList", [])
-        all_jobs.extend(jobs)
+    jobs = data.get("success", [])
+    print(f"총 {len(jobs)}건의 채용 공고 조회")
+    return jobs
 
-        total_page = data.get("totalPage", 1)
-        print(f"페이지 {page}/{total_page} 수집 완료 ({len(jobs)}건)")
 
-        if page >= total_page:
-            break
-        page += 1
+def get_metadata_value(job: dict, field_name: str) -> str | None:
+    """메타데이터에서 특정 필드 값을 가져옵니다. (부분 매칭)"""
+    for meta in job.get("metadata", []):
+        if field_name in meta.get("name", ""):
+            return meta.get("value")
+    return None
 
-    print(f"총 {len(all_jobs)}건의 채용 공고 수집 완료")
-    return all_jobs
+
+def filter_jobs(jobs: list[dict]) -> list[dict]:
+    """조건에 맞는 공고만 필터링합니다."""
+    filtered = []
+    for job in jobs:
+        employment_type = get_metadata_value(job, "Employment_Type")
+        job_category = get_metadata_value(job, "Job Category")
+
+        if employment_type == TARGET_EMPLOYMENT_TYPE and job_category in TARGET_JOB_CATEGORIES:
+            filtered.append(job)
+
+    print(f"필터링 후 {len(filtered)}건 (정규직 + {TARGET_JOB_CATEGORIES})")
+    return filtered
 
 
 def format_date(date_str: str | None) -> str:
     """날짜 문자열을 포맷팅합니다."""
     if not date_str:
-        return "상시채용"
+        return ""
     try:
         dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
         return dt.strftime("%Y-%m-%d")
@@ -62,18 +72,19 @@ def format_date(date_str: str | None) -> str:
 
 def job_to_row(job: dict) -> list[str]:
     """채용 정보를 스프레드시트 행으로 변환합니다."""
-    real_id = job.get("realId", "")
-    url = f"https://careers.kakao.com/jobs/{real_id}" if real_id else ""
+    closing_date = get_metadata_value(job, "클로징 일자")
+    subsidiary = get_metadata_value(job, "소속 자회사")
+
     return [
-        real_id,
-        job.get("jobOfferTitle", ""),
-        job.get("companyName", ""),
-        job.get("jobPartName", "") or job.get("jobTypeName", ""),
-        job.get("locationName", ""),
-        job.get("employeeTypeName", ""),
-        format_date(job.get("regDate")),
-        format_date(job.get("endDate")),
-        url,
+        str(job.get("id", "")),
+        job.get("title", ""),
+        subsidiary or job.get("company_name", ""),
+        get_metadata_value(job, "Job Category") or "",
+        job.get("location", {}).get("name", ""),
+        get_metadata_value(job, "Employment_Type") or "",
+        format_date(job.get("first_published")),
+        format_date(closing_date) if closing_date else "상시채용",
+        job.get("absolute_url", ""),
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     ]
 
@@ -81,12 +92,12 @@ def job_to_row(job: dict) -> list[str]:
 def get_google_sheet():
     """Google Sheets 클라이언트와 시트를 초기화합니다."""
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
-    spreadsheet_id = os.environ.get("SPREADSHEET_ID")
+    spreadsheet_id = os.environ.get("TOSS_SPREADSHEET_ID")
 
     if not creds_json:
         raise ValueError("GOOGLE_CREDENTIALS 환경변수가 설정되지 않았습니다.")
     if not spreadsheet_id:
-        raise ValueError("SPREADSHEET_ID 환경변수가 설정되지 않았습니다.")
+        raise ValueError("TOSS_SPREADSHEET_ID 환경변수가 설정되지 않았습니다.")
 
     creds_data = json.loads(creds_json)
     credentials = Credentials.from_service_account_info(creds_data, scopes=SCOPES)
@@ -117,7 +128,7 @@ def get_existing_ids(sheet) -> set[str]:
 
 def main():
     """메인 실행 함수"""
-    print("=== 카카오 채용 정보 크롤러 시작 ===")
+    print("=== 토스 채용 정보 크롤러 시작 ===")
     print(f"실행 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     # 채용 정보 수집
@@ -125,6 +136,13 @@ def main():
 
     if not jobs:
         print("수집된 채용 공고가 없습니다.")
+        return
+
+    # 필터링
+    filtered_jobs = filter_jobs(jobs)
+
+    if not filtered_jobs:
+        print("조건에 맞는 채용 공고가 없습니다.")
         return
 
     # Google Sheets 연결
@@ -137,7 +155,7 @@ def main():
     print(f"기존 등록 공고: {len(existing_ids)}건")
 
     # 신규 공고 필터링
-    new_jobs = [job for job in jobs if job.get("realId") not in existing_ids]
+    new_jobs = [job for job in filtered_jobs if str(job.get("id")) not in existing_ids]
     print(f"신규 공고: {len(new_jobs)}건")
 
     if not new_jobs:

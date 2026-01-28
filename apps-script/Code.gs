@@ -171,6 +171,27 @@ function getCompanyStats(data) {
 }
 
 /**
+ * 날짜를 친절한 형식으로 변환 (예: 2월 1일 (토))
+ */
+function formatDateFriendly(dateValue) {
+  if (!dateValue || dateValue === '상시채용') return '상시채용';
+
+  try {
+    const date = new Date(dateValue);
+    if (isNaN(date.getTime())) return String(dateValue);
+
+    const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+    const weekday = weekdays[date.getDay()];
+
+    return `${month}월 ${day}일 (${weekday})`;
+  } catch {
+    return String(dateValue);
+  }
+}
+
+/**
  * 회사를 그룹으로 분류
  */
 function getCompanyGroup(company) {
@@ -254,7 +275,7 @@ function generateEmailHTML(newJobs, urgentJobs, stats, totalCount) {
           <div style="padding: 12px; margin-bottom: 8px; background: #f9fafb; border-radius: 8px; border-left: 3px solid #667eea;">
             <a href="${job.url}" style="color: #333; text-decoration: none; font-weight: 500; font-size: 14px; display: block; margin-bottom: 4px;">${job.title}</a>
             <div style="font-size: 12px; color: #888;">
-              ${job.company} ${job.location ? '· ' + job.location : ''} ${job.closeDate ? '· 마감: ' + job.closeDate : ''}
+              ${job.company} ${job.location ? '· ' + job.location : ''} ${job.closeDate ? '· 마감: ' + formatDateFriendly(job.closeDate) : ''}
             </div>
           </div>
           `).join('')}
@@ -275,7 +296,7 @@ function generateEmailHTML(newJobs, urgentJobs, stats, totalCount) {
       <div style="padding: 12px; margin-bottom: 8px; background: #fffbeb; border-radius: 8px; border-left: 3px solid #f59e0b;">
         <a href="${job.url}" style="color: #333; text-decoration: none; font-weight: 500; font-size: 14px; display: block; margin-bottom: 4px;">${job.title}</a>
         <div style="font-size: 12px; color: #888;">
-          ${job.company} · <span style="color: #f59e0b; font-weight: 500;">마감: ${job.closeDate}</span>
+          ${job.company} · <span style="color: #f59e0b; font-weight: 500;">마감: ${formatDateFriendly(job.closeDate)}</span>
         </div>
       </div>
       `).join('')}

@@ -68,8 +68,8 @@ def job_to_row(job: dict) -> list[str]:
     ]
 
 
-def get_google_sheet():
-    """Google Sheets 클라이언트와 시트를 초기화합니다."""
+def get_google_spreadsheet():
+    """Google Sheets 스프레드시트 객체를 반환합니다."""
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
     spreadsheet_id = os.environ.get("DAANGN_SPREADSHEET_ID")
 
@@ -82,8 +82,51 @@ def get_google_sheet():
     credentials = Credentials.from_service_account_info(creds_data, scopes=SCOPES)
     client = gspread.authorize(credentials)
 
-    spreadsheet = client.open_by_key(spreadsheet_id)
-    return spreadsheet.sheet1
+    return client.open_by_key(spreadsheet_id)
+
+
+def get_or_create_archive_sheet(spreadsheet):
+    """Archive 시트를 가져오거나 생성합니다."""
+    try:
+        return spreadsheet.worksheet("Archive")
+    except gspread.WorksheetNotFound:
+        archive = spreadsheet.add_worksheet(title="Archive", rows=1000, cols=10)
+        header = ["공고ID", "직무명", "회사", "직군", "근무지", "고용형태", "등록일", "마감일", "URL", "수집일시"]
+        archive.update("A1:J1", [header])
+        print("Archive 시트 생성 완료")
+        return archive
+
+
+def archive_closed_jobs(spreadsheet, active_job_ids: set[str]) -> int:
+    """API에서 더 이상 조회되지 않는 공고를 Archive 시트로 이동합니다."""
+    sheet = spreadsheet.sheet1
+    archive = get_or_create_archive_sheet(spreadsheet)
+
+    all_rows = sheet.get_all_values()
+    if len(all_rows) <= 1:
+        return 0
+
+    header = all_rows[0]
+    data_rows = all_rows[1:]
+
+    rows_to_archive = []
+    rows_to_keep = [header]
+
+    for row in data_rows:
+        job_id = row[0] if row else ""
+        if job_id and job_id not in active_job_ids:
+            rows_to_archive.append(row)
+        else:
+            rows_to_keep.append(row)
+
+    if not rows_to_archive:
+        return 0
+
+    archive.append_rows(rows_to_archive, value_input_option="USER_ENTERED")
+    sheet.clear()
+    sheet.update(f"A1:J{len(rows_to_keep)}", rows_to_keep, value_input_option="USER_ENTERED")
+
+    return len(rows_to_archive)
 
 
 def setup_header(sheet) -> None:
@@ -120,16 +163,26 @@ def main():
     # 필터링
     filtered_jobs = filter_jobs(jobs)
 
-    if not filtered_jobs:
-        print("조건에 맞는 채용 공고가 없습니다.")
-        return
+    # 현재 활성 공고 ID 목록 (필터링된 공고 기준)
+    active_job_ids = set(str(job.get("ghId")) for job in filtered_jobs if job.get("ghId"))
 
     # Google Sheets 연결
     print("\nGoogle Sheets 연결 중...")
-    sheet = get_google_sheet()
+    spreadsheet = get_google_spreadsheet()
+    sheet = spreadsheet.sheet1
     setup_header(sheet)
 
-    # 기존 공고 ID 확인
+    # 마감 공고 아카이브 처리
+    archived_count = archive_closed_jobs(spreadsheet, active_job_ids)
+    if archived_count > 0:
+        print(f"마감 공고 {archived_count}건을 Archive 시트로 이동")
+
+    if not filtered_jobs:
+        print("조건에 맞는 채용 공고가 없습니다.")
+        print("=== 크롤링 완료 ===")
+        return
+
+    # 기존 공고 ID 확인 (아카이브 후 다시 조회)
     existing_ids = get_existing_ids(sheet)
     print(f"기존 등록 공고: {len(existing_ids)}건")
 
@@ -139,6 +192,7 @@ def main():
 
     if not new_jobs:
         print("추가할 신규 공고가 없습니다.")
+        print("=== 크롤링 완료 ===")
         return
 
     # 신규 공고 추가

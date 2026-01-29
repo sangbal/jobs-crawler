@@ -1,4 +1,5 @@
 name: Jobs Crawler
+# Schedule reactivated: 2026-01-29
 
 on:
   schedule:

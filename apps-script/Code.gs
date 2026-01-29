@@ -82,32 +82,44 @@ function sendDailyReport() {
   return `이메일 발송 완료: 신규 ${newJobs.length}건, 마감임박 ${urgentJobs.length}건`;
 }
 
+// 회사별 시트 이름
+const COMPANY_SHEETS = ['카카오', '토스', '네이버', '쿠팡', '당근', '배민'];
+
 /**
- * 스프레드시트 데이터 가져오기
+ * 스프레드시트 데이터 가져오기 (모든 회사 시트 통합)
  */
 function getSpreadsheetData() {
   const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
-  const sheet = ss.getSheets()[0];
-  const values = sheet.getDataRange().getValues();
-
-  // 헤더 제외하고 데이터 파싱
-  const headers = values[0];
   const data = [];
 
-  for (let i = 1; i < values.length; i++) {
-    const row = values[i];
-    data.push({
-      id: row[0],
-      title: row[1],
-      company: row[2],
-      category: row[3],
-      location: row[4],
-      employmentType: row[5],
-      openDate: row[6],
-      closeDate: row[7],
-      url: row[8],
-      collectDate: row[9]
-    });
+  for (const sheetName of COMPANY_SHEETS) {
+    try {
+      const sheet = ss.getSheetByName(sheetName);
+      if (!sheet) continue;
+
+      const values = sheet.getDataRange().getValues();
+      if (values.length <= 1) continue;  // 헤더만 있는 경우
+
+      // 헤더 제외하고 데이터 파싱
+      for (let i = 1; i < values.length; i++) {
+        const row = values[i];
+        if (!row[0]) continue;  // ID가 없으면 건너뛰기
+        data.push({
+          id: row[0],
+          title: row[1],
+          company: row[2],
+          category: row[3],
+          location: row[4],
+          employmentType: row[5],
+          openDate: row[6],
+          closeDate: row[7],
+          url: row[8],
+          collectDate: row[9]
+        });
+      }
+    } catch (e) {
+      console.log(`${sheetName} 시트 읽기 실패: ${e.message}`);
+    }
   }
 
   return data;

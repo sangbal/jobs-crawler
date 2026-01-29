@@ -95,50 +95,46 @@ def get_google_spreadsheet():
     return client.open_by_key(spreadsheet_id)
 
 
+SHEET_NAME = "카카오"
+
+
+def get_or_create_sheet(spreadsheet, sheet_name: str):
+    """시트를 가져오거나 생성합니다."""
+    try:
+        return spreadsheet.worksheet(sheet_name)
+    except gspread.WorksheetNotFound:
+        sheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=10)
+        header = ["공고ID", "직무명", "회사", "직군", "근무지", "고용형태", "등록일", "마감일", "URL", "수집일시"]
+        sheet.update("A1:J1", [header])
+        print(f"{sheet_name} 시트 생성 완료")
+        return sheet
+
+
 def get_or_create_archive_sheet(spreadsheet):
     """Archive 시트를 가져오거나 생성합니다."""
-    try:
-        return spreadsheet.worksheet("Archive")
-    except gspread.WorksheetNotFound:
-        archive = spreadsheet.add_worksheet(title="Archive", rows=1000, cols=10)
-        header = ["공고ID", "직무명", "회사", "직군", "근무지", "고용형태", "등록일", "마감일", "URL", "수집일시"]
-        archive.update("A1:J1", [header])
-        print("Archive 시트 생성 완료")
-        return archive
+    return get_or_create_sheet(spreadsheet, "Archive")
 
 
-def archive_closed_jobs(spreadsheet, active_job_ids: set[str]) -> int:
+def archive_closed_jobs(spreadsheet, sheet, active_job_ids: set[str]) -> int:
     """API에서 더 이상 조회되지 않는 공고를 Archive 시트로 이동합니다."""
-    sheet = spreadsheet.sheet1
     archive = get_or_create_archive_sheet(spreadsheet)
 
     all_rows = sheet.get_all_values()
     if len(all_rows) <= 1:
         return 0
 
-    header = all_rows[0]
     data_rows = all_rows[1:]
-
     rows_to_archive = []
-    rows_to_keep = [header]
 
     for row in data_rows:
         job_id = row[0] if row else ""
         if job_id and job_id not in active_job_ids:
             rows_to_archive.append(row)
-        else:
-            rows_to_keep.append(row)
 
     if not rows_to_archive:
         return 0
 
-    # Archive 시트에 추가
     archive.append_rows(rows_to_archive, value_input_option="USER_ENTERED")
-
-    # 원본 시트 업데이트 (마감 공고 제거)
-    sheet.clear()
-    sheet.update(f"A1:J{len(rows_to_keep)}", rows_to_keep, value_input_option="USER_ENTERED")
-
     return len(rows_to_archive)
 
 
@@ -179,11 +175,10 @@ def main():
     # Google Sheets 연결
     print("\nGoogle Sheets 연결 중...")
     spreadsheet = get_google_spreadsheet()
-    sheet = spreadsheet.sheet1
-    setup_header(sheet)
+    sheet = get_or_create_sheet(spreadsheet, SHEET_NAME)
 
     # 마감 공고 아카이브 처리
-    archived_count = archive_closed_jobs(spreadsheet, active_job_ids)
+    archived_count = archive_closed_jobs(spreadsheet, sheet, active_job_ids)
     if archived_count > 0:
         print(f"마감 공고 {archived_count}건을 Archive 시트로 이동")
 

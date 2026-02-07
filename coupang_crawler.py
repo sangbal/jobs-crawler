@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""쿠팡 채용 정보 크롤러 - Google Sheets 자동 적재"""
+"""Coupang job crawler — fetches postings from Greenhouse board API and writes to Google Sheets."""
 
 from datetime import datetime
 
@@ -17,10 +17,12 @@ CONFIG = CrawlerConfig(
 API_URL = "https://api.greenhouse.io/v1/boards/coupang/jobs"
 
 TARGET_LOCATION = "Seoul"
+# Greenhouse has no job-category codes, so we filter by Korean keyword in title
 TARGET_KEYWORD = "기획"
 
 
 def fetch_all_jobs() -> list[dict]:
+    """Fetch all Coupang jobs from the Greenhouse public board API (single request)."""
     response = requests.get(API_URL, timeout=30)
     response.raise_for_status()
     data = response.json()
@@ -31,6 +33,11 @@ def fetch_all_jobs() -> list[dict]:
 
 
 def filter_jobs(jobs: list[dict]) -> list[dict]:
+    """Keep only Seoul-based jobs with '기획' in the title.
+
+    Greenhouse board API lacks structured category codes, so keyword matching
+    on the title is the only way to approximate a 기획 (planning) filter.
+    """
     filtered = []
     for job in jobs:
         location = job.get("location", {}).get("name", "")
@@ -44,20 +51,25 @@ def filter_jobs(jobs: list[dict]) -> list[dict]:
 
 
 def job_to_row(job: dict) -> list[str]:
+    """Convert a Greenhouse job dict to a 10-column spreadsheet row.
+
+    Company name, employment type, and closing date are hardcoded because
+    the Greenhouse public board API does not expose these fields.
+    """
     job_id = str(job.get("id", ""))
     departments = job.get("departments", [])
     dept_name = departments[0].get("name", "") if departments else ""
 
     return [
-        job_id,
+        "쿠팡",       # Greenhouse API에 회사명 필드 없음
         job.get("title", ""),
-        "쿠팡",
+        format_date_iso(job.get("first_published")),
+        "상시채용",    # Greenhouse API에 마감일 필드 없음
+        job.get("absolute_url", ""),
         dept_name,
         job.get("location", {}).get("name", ""),
-        "정규직",
-        format_date_iso(job.get("first_published")),
-        "상시채용",
-        job.get("absolute_url", ""),
+        "정규직",      # Greenhouse API에 고용형태 필드 없음
+        job_id,
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     ]
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""네이버 채용 정보 크롤러 - Google Sheets 자동 적재"""
+"""Naver job crawler — fetches postings from recruit.navercorp.com and writes to Google Sheets."""
 
 from datetime import datetime
 
@@ -16,13 +16,19 @@ CONFIG = CrawlerConfig(
 
 API_URL = "https://recruit.navercorp.com/rcrt/loadJobList.do"
 PARAMS = {
+    # subJobCdArr: Service & Business 하위 직군 코드 (기획, 마케팅, 사업개발 등)
     "subJobCdArr": "3010001,3020001,3030001,3040001,3060001,3070001",
-    "empTypeCdArr": "0010",
+    "empTypeCdArr": "0010",  # 0010 = 정규직
 }
-PAGE_SIZE = 10
+PAGE_SIZE = 10  # Naver API 기본값; 다음 offset 계산에 사용
 
 
 def fetch_all_jobs() -> list[dict]:
+    """Fetch all postings via offset-based pagination (firstIndex parameter).
+
+    Unlike page-based APIs (e.g. Kakao), Naver uses an absolute offset.
+    We increment by PAGE_SIZE until accumulated results reach totalSize.
+    """
     all_jobs = []
     first_index = 0
 
@@ -50,19 +56,24 @@ def fetch_all_jobs() -> list[dict]:
 
 
 def job_to_row(job: dict) -> list[str]:
+    """Convert a Naver job dict to a 10-column spreadsheet row.
+
+    Naver API does not provide a work location field, so 근무지 is left empty.
+    Dates are in YYYYMMDD format (e.g. '20250115'), parsed by format_date_compact.
+    """
     anno_id = str(job.get("annoId", ""))
     url = f"https://recruit.navercorp.com/rcrt/view.do?annoId={anno_id}&lang=ko" if anno_id else ""
 
     return [
-        anno_id,
-        job.get("annoSubject", ""),
         job.get("sysCompanyCdNm", ""),
-        job.get("subJobCdNm", ""),
-        "",
-        job.get("empTypeCdNm", ""),
+        job.get("annoSubject", ""),
         format_date_compact(job.get("staYmd")),
         format_date_compact(job.get("endYmd")),
         url,
+        job.get("subJobCdNm", ""),
+        "",  # 근무지: Naver API 미제공
+        job.get("empTypeCdNm", ""),
+        anno_id,
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     ]
 

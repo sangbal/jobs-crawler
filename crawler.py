@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""카카오 채용 정보 크롤러 - Google Sheets 자동 적재"""
+"""Kakao job crawler — fetches postings from careers.kakao.com and writes to Google Sheets."""
 
 from datetime import datetime
 
@@ -16,13 +16,17 @@ CONFIG = CrawlerConfig(
 
 API_URL = "https://careers.kakao.com/public/api/job-list"
 PARAMS = {
-    "part": "BUSINESS_SERVICES",
-    "employeeType": "0",
-    "company": "ALL",
+    "part": "BUSINESS_SERVICES",   # 직군: 서비스비즈
+    "employeeType": "0",           # 0 = 정규직 (1 = 계약직)
+    "company": "ALL",              # 카카오 전체 계열사
 }
 
 
 def fetch_all_jobs() -> list[dict]:
+    """Fetch all job postings via 1-based pagination.
+
+    The API returns totalPage in each response; we iterate until page >= totalPage.
+    """
     all_jobs = []
     page = 1
 
@@ -47,18 +51,23 @@ def fetch_all_jobs() -> list[dict]:
 
 
 def job_to_row(job: dict) -> list[str]:
+    """Convert a Kakao job dict to a 10-column spreadsheet row.
+
+    Uses jobPartName for 직군, falling back to jobTypeName when the API
+    returns null for jobPartName (occurs for some cross-functional roles).
+    """
     real_id = job.get("realId", "")
     url = f"https://careers.kakao.com/jobs/{real_id}" if real_id else ""
     return [
-        real_id,
-        job.get("jobOfferTitle", ""),
         job.get("companyName", ""),
-        job.get("jobPartName", "") or job.get("jobTypeName", ""),
-        job.get("locationName", ""),
-        job.get("employeeTypeName", ""),
+        job.get("jobOfferTitle", ""),
         format_date_iso(job.get("regDate"), default="상시채용"),
         format_date_iso(job.get("endDate"), default="상시채용"),
         url,
+        job.get("jobPartName", "") or job.get("jobTypeName", ""),
+        job.get("locationName", ""),
+        job.get("employeeTypeName", ""),
+        real_id,
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     ]
 

@@ -61,6 +61,9 @@ function sendDailyReport() {
     return collectDateStr.startsWith(yesterday);
   });
 
+  // 최근 7일 이내 등록된 공고
+  const recentJobs = getRecentJobs(data);
+
   // 마감 임박 공고 (7일 이내)
   const urgentJobs = getUrgentJobs(data);
 
@@ -68,7 +71,7 @@ function sendDailyReport() {
   const stats = getCompanyStats(data);
 
   // 이메일 HTML 생성
-  const html = generateEmailHTML(newJobs, urgentJobs, stats, data.length);
+  const html = generateEmailHTML(newJobs, urgentJobs, stats, data.length, recentJobs);
 
   // 이메일 발송
   const today = getTodayString();
@@ -79,7 +82,7 @@ function sendDailyReport() {
     htmlBody: html
   });
 
-  return `이메일 발송 완료: 신규 ${newJobs.length}건, 마감임박 ${urgentJobs.length}건`;
+  return `이메일 발송 완료: 신규 ${newJobs.length}건, 최근7일 ${recentJobs.length}건, 마감임박 ${urgentJobs.length}건`;
 }
 
 // 회사별 시트 이름
@@ -101,19 +104,20 @@ function getSpreadsheetData() {
       if (values.length <= 1) continue;  // 헤더만 있는 경우
 
       // 헤더 제외하고 데이터 파싱
+      // 컬럼 순서: 회사, 직무명, 등록일, 마감일, URL, 직군, 근무지, 고용형태, 공고ID, 수집일시
       for (let i = 1; i < values.length; i++) {
         const row = values[i];
-        if (!row[0]) continue;  // ID가 없으면 건너뛰기
+        if (!row[8]) continue;  // 공고ID가 없으면 건너뛰기
         data.push({
-          id: row[0],
+          company: row[0],
           title: row[1],
-          company: row[2],
-          category: row[3],
-          location: row[4],
-          employmentType: row[5],
-          openDate: row[6],
-          closeDate: row[7],
-          url: row[8],
+          openDate: row[2],
+          closeDate: row[3],
+          url: row[4],
+          category: row[5],
+          location: row[6],
+          employmentType: row[7],
+          id: row[8],
           collectDate: row[9]
         });
       }
@@ -164,6 +168,24 @@ function getUrgentJobs(data) {
       return false;
     }
   }).sort((a, b) => new Date(a.closeDate) - new Date(b.closeDate));
+}
+
+/**
+ * 최근 7일 이내 등록된 공고
+ */
+function getRecentJobs(data) {
+  const today = new Date();
+  const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  return data.filter(job => {
+    if (!job.openDate || job.openDate === '상시채용') return false;
+    try {
+      const openDate = new Date(job.openDate);
+      return openDate >= weekAgo && openDate <= today;
+    } catch {
+      return false;
+    }
+  }).sort((a, b) => new Date(b.openDate) - new Date(a.openDate));
 }
 
 /**
@@ -218,7 +240,7 @@ function getCompanyGroup(company) {
 /**
  * 이메일 HTML 생성
  */
-function generateEmailHTML(newJobs, urgentJobs, stats, totalCount) {
+function generateEmailHTML(newJobs, urgentJobs, stats, totalCount, recentJobs) {
   const today = getTodayString();
 
   // 신규 공고를 회사 그룹별로 정리
@@ -227,6 +249,14 @@ function generateEmailHTML(newJobs, urgentJobs, stats, totalCount) {
     const group = getCompanyGroup(job.company);
     if (!newJobsByGroup[group]) newJobsByGroup[group] = [];
     newJobsByGroup[group].push(job);
+  }
+
+  // 최근 7일 공고를 회사 그룹별로 정리
+  const recentJobsByGroup = {};
+  for (const job of (recentJobs || [])) {
+    const group = getCompanyGroup(job.company);
+    if (!recentJobsByGroup[group]) recentJobsByGroup[group] = [];
+    recentJobsByGroup[group].push(job);
   }
 
   return `
@@ -252,11 +282,15 @@ function generateEmailHTML(newJobs, urgentJobs, stats, totalCount) {
           <div style="font-size: 32px; font-weight: 700; color: #667eea;">${totalCount}</div>
           <div style="font-size: 12px; color: #888; margin-top: 4px;">전체 공고</div>
         </div>
-        <div style="flex: 1; border-left: 1px solid #eee; border-right: 1px solid #eee;">
+        <div style="flex: 1; border-left: 1px solid #eee;">
           <div style="font-size: 32px; font-weight: 700; color: #10b981;">${newJobs.length}</div>
           <div style="font-size: 12px; color: #888; margin-top: 4px;">어제 신규</div>
         </div>
-        <div style="flex: 1;">
+        <div style="flex: 1; border-left: 1px solid #eee;">
+          <div style="font-size: 32px; font-weight: 700; color: #3b82f6;">${(recentJobs || []).length}</div>
+          <div style="font-size: 12px; color: #888; margin-top: 4px;">최근 7일</div>
+        </div>
+        <div style="flex: 1; border-left: 1px solid #eee;">
           <div style="font-size: 32px; font-weight: 700; color: #f59e0b;">${urgentJobs.length}</div>
           <div style="font-size: 12px; color: #888; margin-top: 4px;">마감 임박</div>
         </div>
@@ -275,6 +309,26 @@ function generateEmailHTML(newJobs, urgentJobs, stats, totalCount) {
         `).join('')}
       </table>
     </div>
+
+    <!-- 최근 7일 이내 등록 포지션 -->
+    ${(recentJobs || []).length > 0 ? `
+    <div style="background: white; padding: 24px; border-bottom: 1px solid #eee;">
+      <h2 style="margin: 0 0 16px 0; font-size: 16px; color: #333;">📅 최근 7일 이내 등록 포지션</h2>
+      ${Object.entries(recentJobsByGroup).map(([group, jobs]) => `
+        <div style="margin-bottom: 20px;">
+          <h3 style="font-size: 14px; color: #3b82f6; margin: 0 0 12px 0; padding-bottom: 8px; border-bottom: 2px solid #3b82f6;">${group} (${jobs.length}건)</h3>
+          ${jobs.map(job => `
+          <div style="padding: 12px; margin-bottom: 8px; background: #f0f7ff; border-radius: 8px; border-left: 3px solid #3b82f6;">
+            <a href="${job.url}" style="color: #333; text-decoration: none; font-weight: 500; font-size: 14px; display: block; margin-bottom: 4px;">${job.title}</a>
+            <div style="font-size: 12px; color: #888;">
+              ${job.company} · 등록: ${formatDateFriendly(job.openDate)} ${job.closeDate && job.closeDate !== '상시채용' ? '· 마감: ' + formatDateFriendly(job.closeDate) : ''}
+            </div>
+          </div>
+          `).join('')}
+        </div>
+      `).join('')}
+    </div>
+    ` : ''}
 
     <!-- 어제 신규 공고 -->
     ${newJobs.length > 0 ? `

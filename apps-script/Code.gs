@@ -109,16 +109,16 @@ function getSpreadsheetData() {
         const row = values[i];
         if (!row[8]) continue;  // 공고ID가 없으면 건너뛰기
         data.push({
-          company: row[0],
-          title: row[1],
-          openDate: row[2],
-          closeDate: row[3],
-          url: row[4],
-          category: row[5],
-          location: row[6],
-          employmentType: row[7],
-          id: row[8],
-          collectDate: row[9]
+          company: String(row[0] || ''),
+          title: String(row[1] || ''),
+          openDate: String(row[2] || ''),
+          closeDate: String(row[3] || ''),
+          url: String(row[4] || ''),
+          category: String(row[5] || ''),
+          location: String(row[6] || ''),
+          employmentType: String(row[7] || ''),
+          id: String(row[8] || ''),
+          collectDate: String(row[9] || '')
         });
       }
     } catch (e) {

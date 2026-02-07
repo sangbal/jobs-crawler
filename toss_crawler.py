@@ -1,30 +1,26 @@
 #!/usr/bin/env python3
 """토스 채용 정보 크롤러 - Google Sheets 자동 적재"""
 
-import json
-import os
 from datetime import datetime
 
-import gspread
 import requests
-from google.oauth2.service_account import Credentials
 
-# API 설정
+from base import CrawlerConfig, format_date_iso, run_crawler
+
+CONFIG = CrawlerConfig(
+    company_name="토스",
+    sheet_name="토스",
+    spreadsheet_env_var="TOSS_SPREADSHEET_ID",
+    job_id_field="id",
+)
+
 API_URL = "https://api-public.toss.im/api/v3/ipd-eggnog/career/jobs"
 
-# 필터 조건
 TARGET_EMPLOYMENT_TYPE = "정규직"
-TARGET_JOB_CATEGORIES = {"Sales", "Sales Support"}  # Business & Sales 관련
-
-# Google Sheets 스코프
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
-]
+TARGET_JOB_CATEGORIES = {"Sales", "Sales Support"}
 
 
 def fetch_all_jobs() -> list[dict]:
-    """토스 채용 정보를 가져옵니다."""
     response = requests.get(API_URL, timeout=30)
     response.raise_for_status()
     data = response.json()
@@ -38,7 +34,6 @@ def fetch_all_jobs() -> list[dict]:
 
 
 def get_metadata_value(job: dict, field_name: str) -> str | None:
-    """메타데이터에서 특정 필드 값을 가져옵니다. (부분 매칭)"""
     for meta in job.get("metadata", []):
         if field_name in meta.get("name", ""):
             return meta.get("value")
@@ -46,7 +41,6 @@ def get_metadata_value(job: dict, field_name: str) -> str | None:
 
 
 def filter_jobs(jobs: list[dict]) -> list[dict]:
-    """조건에 맞는 공고만 필터링합니다."""
     filtered = []
     for job in jobs:
         employment_type = get_metadata_value(job, "Employment_Type")
@@ -59,19 +53,7 @@ def filter_jobs(jobs: list[dict]) -> list[dict]:
     return filtered
 
 
-def format_date(date_str: str | None) -> str:
-    """날짜 문자열을 포맷팅합니다."""
-    if not date_str:
-        return ""
-    try:
-        dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-        return dt.strftime("%Y-%m-%d")
-    except (ValueError, AttributeError):
-        return date_str
-
-
 def job_to_row(job: dict) -> list[str]:
-    """채용 정보를 스프레드시트 행으로 변환합니다."""
     closing_date = get_metadata_value(job, "클로징 일자")
     subsidiary = get_metadata_value(job, "소속 자회사")
 
@@ -82,137 +64,12 @@ def job_to_row(job: dict) -> list[str]:
         get_metadata_value(job, "Job Category") or "",
         job.get("location", {}).get("name", ""),
         get_metadata_value(job, "Employment_Type") or "",
-        format_date(job.get("first_published")),
-        format_date(closing_date) if closing_date else "상시채용",
+        format_date_iso(job.get("first_published")),
+        format_date_iso(closing_date) if closing_date else "상시채용",
         job.get("absolute_url", ""),
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     ]
 
 
-def get_google_spreadsheet():
-    """Google Sheets 스프레드시트 객체를 반환합니다."""
-    creds_json = os.environ.get("GOOGLE_CREDENTIALS")
-    spreadsheet_id = os.environ.get("TOSS_SPREADSHEET_ID")
-
-    if not creds_json:
-        raise ValueError("GOOGLE_CREDENTIALS 환경변수가 설정되지 않았습니다.")
-    if not spreadsheet_id:
-        raise ValueError("TOSS_SPREADSHEET_ID 환경변수가 설정되지 않았습니다.")
-
-    creds_data = json.loads(creds_json)
-    credentials = Credentials.from_service_account_info(creds_data, scopes=SCOPES)
-    client = gspread.authorize(credentials)
-
-    return client.open_by_key(spreadsheet_id)
-
-
-SHEET_NAME = "토스"
-
-
-def get_or_create_sheet(spreadsheet, sheet_name: str):
-    """시트를 가져오거나 생성합니다."""
-    try:
-        return spreadsheet.worksheet(sheet_name)
-    except gspread.WorksheetNotFound:
-        sheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=10)
-        header = ["공고ID", "직무명", "회사", "직군", "근무지", "고용형태", "등록일", "마감일", "URL", "수집일시"]
-        sheet.update("A1:J1", [header])
-        print(f"{sheet_name} 시트 생성 완료")
-        return sheet
-
-
-def get_or_create_archive_sheet(spreadsheet):
-    """Archive 시트를 가져오거나 생성합니다."""
-    return get_or_create_sheet(spreadsheet, "Archive")
-
-
-def archive_closed_jobs(spreadsheet, sheet, active_job_ids: set[str]) -> int:
-    """API에서 더 이상 조회되지 않는 공고를 Archive 시트로 이동합니다."""
-    archive = get_or_create_archive_sheet(spreadsheet)
-
-    all_rows = sheet.get_all_values()
-    if len(all_rows) <= 1:
-        return 0
-
-    data_rows = all_rows[1:]
-    rows_to_archive = []
-
-    for row in data_rows:
-        job_id = row[0] if row else ""
-        if job_id and job_id not in active_job_ids:
-            rows_to_archive.append(row)
-
-    if not rows_to_archive:
-        return 0
-
-    archive.append_rows(rows_to_archive, value_input_option="USER_ENTERED")
-    return len(rows_to_archive)
-
-
-def setup_header(sheet) -> None:
-    """시트에 헤더가 없으면 추가합니다."""
-    header = ["공고ID", "직무명", "회사", "직군", "근무지", "고용형태", "등록일", "마감일", "URL", "수집일시"]
-    existing = sheet.row_values(1)
-
-    if not existing or existing != header:
-        sheet.update("A1:J1", [header])
-        print("헤더 설정 완료")
-
-
-def get_existing_ids(sheet) -> set[str]:
-    """이미 등록된 공고 ID 목록을 가져옵니다."""
-    try:
-        ids = sheet.col_values(1)[1:]  # 헤더 제외
-        return set(ids)
-    except Exception:
-        return set()
-
-
-def main():
-    """메인 실행 함수"""
-    print("=== 토스 채용 정보 크롤러 시작 ===")
-    print(f"실행 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-    # 채용 정보 수집
-    jobs = fetch_all_jobs()
-
-    if not jobs:
-        print("수집된 채용 공고가 없습니다.")
-        return
-
-    # 필터링
-    filtered_jobs = filter_jobs(jobs)
-
-    # 현재 활성 공고 ID 목록 (필터링된 공고 기준)
-    active_job_ids = set(str(job.get("id")) for job in filtered_jobs if job.get("id"))
-
-    # Google Sheets 연결
-    print("\nGoogle Sheets 연결 중...")
-    spreadsheet = get_google_spreadsheet()
-    sheet = get_or_create_sheet(spreadsheet, SHEET_NAME)
-
-    # 마감 공고 아카이브 처리
-    archived_count = archive_closed_jobs(spreadsheet, sheet, active_job_ids)
-    if archived_count > 0:
-        print(f"마감 공고 {archived_count}건을 Archive 시트로 이동")
-
-    if not filtered_jobs:
-        print("조건에 맞는 채용 공고가 없습니다.")
-        sheet.clear()
-        setup_header(sheet)
-        print("=== 크롤링 완료 ===")
-        return
-
-    # 활성 공고 전체 덮어쓰기
-    header = ["공고ID", "직무명", "회사", "직군", "근무지", "고용형태", "등록일", "마감일", "URL", "수집일시"]
-    all_rows = [header] + [job_to_row(job) for job in filtered_jobs]
-
-    sheet.clear()
-    sheet.update(f"A1:J{len(all_rows)}", all_rows, value_input_option="USER_ENTERED")
-
-    print(f"\n{len(filtered_jobs)}건의 공고를 최신 데이터로 갱신했습니다.")
-    print("=== 크롤링 완료 ===")
-
-
 if __name__ == "__main__":
-    main()
+    run_crawler(CONFIG, fetch_all_jobs, job_to_row, filter_fn=filter_jobs)
